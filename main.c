@@ -17,7 +17,7 @@
 
 // Indirizzo della scheda da 1 a 255
 
-unsigned char myaddress=21;
+unsigned char myaddress=22;
 
 #define RED_LED                 GPIO_PIN(PA, 7)
 #define RS485_DE                GPIO_PIN(PA, 6) 
@@ -77,7 +77,6 @@ static void rx_cb(void *arg, uint8_t inByte) {
     // Questa riga serve solo per non far apparire un messaggio di
     // errore in compilazione    
     if (arg==NULL) arg=NULL;
-  
 	
     if (current_state==SNAP_CRC1) {
         return;
@@ -198,13 +197,10 @@ int main(void) {
 		xtimer_msleep(1000U);
 	}
 
-    (void) printf("\r\n");
-    (void) printf("ST02 board 1.0 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
+    printf("\r\n");
+    printf("ST02 board 1.2 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
 
-    if (i2c_acquire(I2C_DEV(0))) {
-        puts("ERROR: acquiring bus for measure\r\n");
-        return 1;
-    }
+    i2c_acquire(I2C_DEV(0));
 
 	/* initialize UART */
     res = uart_init(UART_DEV(dev), 19200, rx_cb, (void *)dev);
@@ -226,16 +222,23 @@ int main(void) {
     // Loop principale
 
     int i=0;
+    int check_sensor_counter=0;
     int valid_data=false;
     unsigned short crc;
     for(;;) {
-		if (read_hdc(&temp, &hum)==0) {
-            valid_data=true;
-        	printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
-        } else {
-            valid_data=false;
-        	printf("Bad data\r\n");
-        }
+		check_sensor_counter++;
+		
+		if (check_sensor_counter==100) {
+			check_sensor_counter=0;
+			if (read_hdc(&temp, &hum)==0) {
+				valid_data=true;
+				printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
+			} else {
+				valid_data=false;
+				printf("Bad data\r\n");
+			}
+		}	
+		xtimer_msleep(100U);
 	
         // Se e' stato ricevuto un pacchetto SNAP ne controlla il CRC
 
@@ -259,10 +262,9 @@ int main(void) {
               printf("%02X ",rxbuffer[buffer_pointer]);
             }
             printf("\r\n");
-        	xtimer_msleep(500U);
+        	xtimer_msleep(100U);
 
- 
-            if (valid_data==true) {
+             if (valid_data==true) {
 				if (rxbuffer[2]==myaddress) {
 					RED_LED_ON
 					printf("Pacchetto per me !\r\n");
@@ -286,7 +288,6 @@ int main(void) {
 
 					// Invia il pacchetto SNAP di risposta
 					
-					RS485_DE_ON
 					txbuffer[0]=0x50; 		//HDB2
 					txbuffer[1]=0x44; 		//HDB1
 					txbuffer[2]=0x00; 		//DAB1
@@ -306,12 +307,12 @@ int main(void) {
 						printf("[%02X] ",txbuffer[buffer_pointer]);
 						crc16(&crc,txbuffer[buffer_pointer]);
 					}
-					printf("[%04X]\r\n] ",crc);
+					printf("[%04X]\r\n",crc);
 					txbuffer[8]=(crc>>8)&0x00FF;	//CRC2
 					txbuffer[9]=crc&0x00FF; 		//CRC1	
 					
+					RS485_DE_ON
 					uart_write(UART_DEV(dev), (uint8_t *)txbuffer,10);
-					
 					RS485_DE_OFF
 					RED_LED_OFF
 				}
@@ -321,7 +322,6 @@ int main(void) {
             buffer_pointer=0;
             current_state=SNAP_NOSTATE;
         }
-		xtimer_msleep(1000U);
     }
     return 0;
 }
