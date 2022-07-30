@@ -17,17 +17,25 @@
 
 // Indirizzo della scheda da 1 a 255
 
-unsigned char myaddress=22;
+unsigned char myaddress=20;
 
 #define RED_LED                 GPIO_PIN(PA, 7)
+#define GREEN_LED               GPIO_PIN(PA, 8)
 #define RS485_DE                GPIO_PIN(PA, 6) 
-#define HDC_ENABLE              GPIO_PIN(PA, 18)
+/* Harvest-8 */
+//#define HDC_ENABLE              GPIO_PIN(PA, 18)
+
+/* Harvest-10 */
+#define HDC_ENABLE              GPIO_PIN(PA, 27)
 
 #define HDC3020_ADDR            (0x44)
 #define HDC3020_MEAS_DELAY      (12000)
 
 #define RED_LED_ON              gpio_set(RED_LED);
 #define RED_LED_OFF             gpio_clear(RED_LED);
+
+#define GREEN_LED_ON            gpio_set(GREEN_LED);
+#define GREEN_LED_OFF           gpio_clear(GREEN_LED);
 
 #define RS485_DE_ON             gpio_set(RS485_DE);
 #define RS485_DE_OFF            gpio_clear(RS485_DE);
@@ -185,20 +193,29 @@ int main(void) {
 
     gpio_init(RS485_DE, GPIO_OUT);
     gpio_init(RED_LED, GPIO_OUT);
+    gpio_init(GREEN_LED, GPIO_OUT);
     RS485_DE_OFF
     RED_LED_OFF
+    GREEN_LED_OFF
 
     //xtimer_msleep(2000U);
 
 	for (int i=0;i<2;i++) {
 		RED_LED_ON
-		xtimer_msleep(1000U);
+		xtimer_msleep(500U);
 		RED_LED_OFF
-		xtimer_msleep(1000U);
+		xtimer_msleep(500U);
+	}
+
+	for (int i=0;i<2;i++) {
+		GREEN_LED_ON
+		xtimer_msleep(500U);
+		GREEN_LED_OFF
+		xtimer_msleep(500U);
 	}
 
     printf("\r\n");
-    printf("ST02 board 1.2 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
+    printf("ST02 board 1.5 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
 
     i2c_acquire(I2C_DEV(0));
 
@@ -223,16 +240,28 @@ int main(void) {
 
     int i=0;
     int check_sensor_counter=0;
+    int blinking_green_led_tick=0;
     int valid_data=false;
     unsigned short crc;
     for(;;) {
+		blinking_green_led_tick++;
+		if (blinking_green_led_tick>=0 && blinking_green_led_tick<10) {
+			GREEN_LED_ON
+		} else {	
+			GREEN_LED_OFF
+		} 	
+		if (blinking_green_led_tick>=20) {
+			blinking_green_led_tick=0;
+		} 	
+
 		check_sensor_counter++;
-		
 		if (check_sensor_counter==100) {
 			check_sensor_counter=0;
 			if (read_hdc(&temp, &hum)==0) {
+				GREEN_LED_ON
 				valid_data=true;
 				printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
+				GREEN_LED_OFF
 			} else {
 				valid_data=false;
 				printf("Bad data\r\n");
@@ -298,8 +327,7 @@ int main(void) {
 					txbuffer[7]=sht75_data[3];	//DB4
 				
 
-					// Cancola il CRC16
-
+					// Calcola il CRC16
 					// Controlla la validità del CRC
 
 					crc=0;
@@ -323,34 +351,11 @@ int main(void) {
             current_state=SNAP_NOSTATE;
         }
     }
+    printf("Bye, bye...\n");
+	xtimer_msleep(2000U);
     return 0;
 }
 
-    //gpio_init(GPIO_PIN(PA, 6), GPIO_OUT);
-    //gpio_set(GPIO_PIN(PA, 6));
-    //xtimer_msleep(1000U);
 
-    //(void) printf("%d\r\n",__LINE__);
-
-	/* https://doc.riot-os.org/group__drivers__periph__uart.html */
-
-/*
-static void rx_cb(void *arg, uint8_t data)
-{
-	uart_t dev = (uart_t)arg;
-
-	dev++;
-	
-	rxbuffer[rxbuffer_wp]=data;
-	rxbuffer_wp++;
-	if (rxbuffer_wp>RXBUFFER_MAX_LEN) {
-		rxbuffer_wp=0;
-	}
-}
-*/ 
-
-		//uart_write(UART_DEV(dev), (uint8_t *)testo, strlen(testo));
-		//uart_write(UART_DEV(dev), (uint8_t *)rxbuffer, RXBUFFER_MAX_LEN);
-        //gpio_clear(GPIO_PIN(PA, 6));
-        //gpio_clear(GPIO_PIN(PA, 7));
-
+//(void) printf("%d\r\n",__LINE__);
+/* https://doc.riot-os.org/group__drivers__periph__uart.html */
