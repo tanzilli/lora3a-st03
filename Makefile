@@ -9,6 +9,8 @@ USEMODULE += periph_uart
 USEMODULE += periph_uart_modecfg
 USEMODULE += ztimer_usec
 USEMODULE += printf_float
+USEMODULE += shell
+USEMODULE += ps
 
 QUIET ?= 1
 DEVELHELP ?= 1

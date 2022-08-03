@@ -5,7 +5,9 @@
 #include <stdio.h>
 #include <string.h>
 #include "thread.h"
+#include "shell.h"
 #include "xtimer.h"
+#include "ps.h"
 #include <inttypes.h>
 
 #include "ztimer.h"
@@ -15,15 +17,15 @@
 #include "periph/gpio.h"
 #include "periph/uart.h"
 
+//************************************
 // Indirizzo della scheda da 1 a 255
+//************************************
 
-unsigned char myaddress=20;
+unsigned char myaddress=24;
 
 #define RED_LED                 GPIO_PIN(PA, 7)
 #define GREEN_LED               GPIO_PIN(PA, 8)
 #define RS485_DE                GPIO_PIN(PA, 6) 
-/* Harvest-8 */
-//#define HDC_ENABLE              GPIO_PIN(PA, 18)
 
 /* Harvest-10 */
 #define HDC_ENABLE              GPIO_PIN(PA, 27)
@@ -81,29 +83,36 @@ void crc16(unsigned short *crc, char c) {
 // Callback richiamata alla ricezione di ogni carattere dalla RS485
 
 static void rx_cb(void *arg, uint8_t inByte) {
+	
+	// Protezione per evitare buffer overrun
+    if (buffer_pointer>=(BUFFER_MAX_LEN-1)) {
+		current_state=SNAP_NOSTATE;
+		buffer_pointer=0;
+		return;
+	}	
         
     // Questa riga serve solo per non far apparire un messaggio di
     // errore in compilazione    
-    if (arg==NULL) arg=NULL;
+    if (arg==NULL) {};
 	
     if (current_state==SNAP_CRC1) {
         return;
     }
 
     if (inByte==0x51 && current_state==SNAP_NOSTATE) {
-      current_state=SNAP_HDB2;
-      buffer_pointer=0;
-      rxbuffer[buffer_pointer]=inByte;
-      buffer_pointer++;
-      return;
+		current_state=SNAP_HDB2;
+		buffer_pointer=0;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
     }
 
-   if (inByte==0x41 && current_state==SNAP_HDB2) {
-      current_state=SNAP_HDB1;
-      rxbuffer[buffer_pointer]=inByte;
-      buffer_pointer++;
-      return;
-    }
+	if (inByte==0x41 && current_state==SNAP_HDB2) {
+		current_state=SNAP_HDB1;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
+	}
 
    if (inByte==myaddress && current_state==SNAP_HDB1) {
       current_state=SNAP_DAB1;
@@ -112,32 +121,32 @@ static void rx_cb(void *arg, uint8_t inByte) {
       return;
     }
 
-   if (inByte==0x00 && current_state==SNAP_DAB1) {
-      current_state=SNAP_SAB1;
-      rxbuffer[buffer_pointer]=inByte;
-      buffer_pointer++;
-      return;
+	if (inByte==0x00 && current_state==SNAP_DAB1) {
+		current_state=SNAP_SAB1;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
+	}
+
+	if (inByte==0x02 && current_state==SNAP_SAB1) {
+		current_state=SNAP_DB1;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
     }
 
-   if (inByte==0x02 && current_state==SNAP_SAB1) {
-      current_state=SNAP_DB1;
-      rxbuffer[buffer_pointer]=inByte;
-      buffer_pointer++;
-      return;
+	if (current_state==SNAP_DB1) {
+		current_state=SNAP_CRC2;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
     }
 
-   if (current_state==SNAP_DB1) {
-      current_state=SNAP_CRC2;
-      rxbuffer[buffer_pointer]=inByte;
-      buffer_pointer++;
-      return;
-    }
-
-   if (current_state==SNAP_CRC2) {
-        current_state=SNAP_CRC1;
-        rxbuffer[buffer_pointer]=inByte;
-        buffer_pointer++;
-        return;
+	if (current_state==SNAP_CRC2) {
+		current_state=SNAP_CRC1;
+		rxbuffer[buffer_pointer]=inByte;
+		buffer_pointer++;
+		return;
     }
 
     current_state=SNAP_NOSTATE;
@@ -188,6 +197,9 @@ int main(void) {
 	unsigned char sht75_data[4];
     unsigned short hexdata16bit;
 
+	//char line_buf[SHELL_DEFAULT_BUFSIZE];
+    //shell_run(NULL, line_buf, SHELL_DEFAULT_BUFSIZE);
+
     gpio_init(HDC_ENABLE, GPIO_OUT);
     gpio_set(HDC_ENABLE);
 
@@ -215,7 +227,7 @@ int main(void) {
 	}
 
     printf("\r\n");
-    printf("ST02 board 1.5 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
+    printf("ST02 board 1.6 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
 
     i2c_acquire(I2C_DEV(0));
 
@@ -242,8 +254,17 @@ int main(void) {
     int check_sensor_counter=0;
     int blinking_green_led_tick=0;
     int valid_data=false;
+    int ps_counter=0;
     unsigned short crc;
     for(;;) {
+		
+		// Solo per test
+		ps_counter++;
+		if (ps_counter>=100) {
+			ps_counter=0;
+			ps();
+		}
+		
 		blinking_green_led_tick++;
 		if (blinking_green_led_tick>=0 && blinking_green_led_tick<10) {
 			GREEN_LED_ON
