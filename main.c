@@ -1,5 +1,5 @@
 /*
-    Nodo RS485 ST02
+    Nodo RS485 ST03
 */     
 
 #include <stdio.h>
@@ -7,7 +7,6 @@
 #include "thread.h"
 #include "shell.h"
 #include "xtimer.h"
-#include "ps.h"
 #include <inttypes.h>
 
 #include "ztimer.h"
@@ -16,12 +15,13 @@
 #include "periph/i2c.h"
 #include "periph/gpio.h"
 #include "periph/uart.h"
+#include "periph/wdt.h"
 
 //************************************
 // Indirizzo della scheda da 1 a 255
 //************************************
 
-unsigned char myaddress=24;
+unsigned char myaddress=27;
 
 #define RED_LED                 GPIO_PIN(PA, 7)
 #define GREEN_LED               GPIO_PIN(PA, 8)
@@ -83,13 +83,6 @@ void crc16(unsigned short *crc, char c) {
 // Callback richiamata alla ricezione di ogni carattere dalla RS485
 
 static void rx_cb(void *arg, uint8_t inByte) {
-	
-	// Protezione per evitare buffer overrun
-    if (buffer_pointer>=(BUFFER_MAX_LEN-1)) {
-		current_state=SNAP_NOSTATE;
-		buffer_pointer=0;
-		return;
-	}	
         
     // Questa riga serve solo per non far apparire un messaggio di
     // errore in compilazione    
@@ -227,7 +220,7 @@ int main(void) {
 	}
 
     printf("\r\n");
-    printf("ST02 board 1.6 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
+    printf("ST03 board 1.8 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
 
     i2c_acquire(I2C_DEV(0));
 
@@ -248,25 +241,26 @@ int main(void) {
         return 1;
     }
 
-    // Loop principale
 
     int i=0;
     int check_sensor_counter=0;
     int blinking_green_led_tick=0;
     int valid_data=false;
-    int ps_counter=0;
     unsigned short crc;
+    
+	// Set the whatchdog at 10 seconds
+    
+    
+    wdt_setup_reboot(0, 10000);
+    wdt_start();
+    
+    
+    // Loop principale
     for(;;) {
-		
-		// Solo per test
-		ps_counter++;
-		if (ps_counter>=100) {
-			ps_counter=0;
-			ps();
-		}
-		
+
 		blinking_green_led_tick++;
 		if (blinking_green_led_tick>=0 && blinking_green_led_tick<10) {
+			wdt_kick();
 			GREEN_LED_ON
 		} else {	
 			GREEN_LED_OFF
@@ -338,30 +332,31 @@ int main(void) {
 
 					// Invia il pacchetto SNAP di risposta
 					
-					txbuffer[0]=0x50; 		//HDB2
-					txbuffer[1]=0x44; 		//HDB1
-					txbuffer[2]=0x00; 		//DAB1
-					txbuffer[3]=myaddress;	//SAB1
-					txbuffer[4]=sht75_data[0];	//DB1
-					txbuffer[5]=sht75_data[1];	//DB2
-					txbuffer[6]=sht75_data[2];	//DB3
-					txbuffer[7]=sht75_data[3];	//DB4
+					txbuffer[0]=0x54; 		//SYNC
+					txbuffer[1]=0x50; 		//HDB2
+					txbuffer[2]=0x44; 		//HDB1
+					txbuffer[3]=0x00; 		//DAB1
+					txbuffer[4]=myaddress;	//SAB1
+					txbuffer[5]=sht75_data[0];	//DB1
+					txbuffer[6]=sht75_data[1];	//DB2
+					txbuffer[7]=sht75_data[2];	//DB3
+					txbuffer[8]=sht75_data[3];	//DB4
 				
 
 					// Calcola il CRC16
 					// Controlla la validità del CRC
 
 					crc=0;
-					for (buffer_pointer=0;buffer_pointer<8;buffer_pointer++) {
+					for (buffer_pointer=1;buffer_pointer<9;buffer_pointer++) {
 						printf("[%02X] ",txbuffer[buffer_pointer]);
 						crc16(&crc,txbuffer[buffer_pointer]);
 					}
 					printf("[%04X]\r\n",crc);
-					txbuffer[8]=(crc>>8)&0x00FF;	//CRC2
-					txbuffer[9]=crc&0x00FF; 		//CRC1	
+					txbuffer[9]=(crc>>8)&0x00FF;	//CRC2
+					txbuffer[10]=crc&0x00FF; 		//CRC1	
 					
 					RS485_DE_ON
-					uart_write(UART_DEV(dev), (uint8_t *)txbuffer,10);
+					uart_write(UART_DEV(dev), (uint8_t *)txbuffer,11);
 					RS485_DE_OFF
 					RED_LED_OFF
 				}

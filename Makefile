@@ -10,7 +10,7 @@ USEMODULE += periph_uart_modecfg
 USEMODULE += ztimer_usec
 USEMODULE += printf_float
 USEMODULE += shell
-USEMODULE += ps
+USEMODULE += periph_wdt
 
 QUIET ?= 1
 DEVELHELP ?= 1
