@@ -11,6 +11,7 @@ USEMODULE += ztimer_usec
 USEMODULE += printf_float
 USEMODULE += shell
 USEMODULE += periph_wdt
+USEMODULE += periph_flashpage
 
 QUIET ?= 1
 DEVELHELP ?= 1

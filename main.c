@@ -3,9 +3,9 @@
 */     
 
 #include <stdio.h>
+#include <stdio_base.h>
 #include <string.h>
-#include "thread.h"
-#include "shell.h"
+#include <stdlib.h>
 #include "xtimer.h"
 #include <inttypes.h>
 
@@ -16,12 +16,13 @@
 #include "periph/gpio.h"
 #include "periph/uart.h"
 #include "periph/wdt.h"
+#include "periph/flashpage.h"
 
 //************************************
-// Indirizzo della scheda da 1 a 255
+// Indirizzo RS485 di default
 //************************************
 
-unsigned char myaddress=27;
+unsigned char myaddress=19;
 
 #define RED_LED                 GPIO_PIN(PA, 7)
 #define GREEN_LED               GPIO_PIN(PA, 8)
@@ -42,7 +43,7 @@ unsigned char myaddress=27;
 #define RS485_DE_ON             gpio_set(RS485_DE);
 #define RS485_DE_OFF            gpio_clear(RS485_DE);
 
-#define BUFFER_MAX_LEN 20
+#define BUFFER_MAX_LEN 40
 
 // Stati possibili durante la ricezione del pacchetto SNAP
 
@@ -64,6 +65,7 @@ double hum;
 
 int current_state=SNAP_NOSTATE;
 int next_state=SNAP_NOSTATE;
+uint8_t flash_buffer[FLASHPAGE_SIZE];
 
 // Calcolo del  CRC16
 
@@ -189,6 +191,7 @@ int main(void) {
 	int res;
 	unsigned char sht75_data[4];
     unsigned short hexdata16bit;
+    char stdio_cmd_buffer[10];
 
 	//char line_buf[SHELL_DEFAULT_BUFSIZE];
     //shell_run(NULL, line_buf, SHELL_DEFAULT_BUFSIZE);
@@ -220,23 +223,42 @@ int main(void) {
 	}
 
     printf("\r\n");
-    printf("ST03 board 1.8 - Addr=%d (0x%02X)\r\n",myaddress,myaddress);
+    printf("ST03 board 1.93\r\n");
+
+	// https://github.com/ant9000/lora-leaf/blob/master/lora_persistence.c
+	printf("Check flash state\r\n");
+	flashpage_rwwee_read(0, flash_buffer);
+
+	if (flash_buffer[0]==0x55 && flash_buffer[1]==0xAA) {
+		printf("Magic number found !\r\n");
+		myaddress=flash_buffer[2];
+		printf("My address is %d\r\n",myaddress);
+	} else {
+		printf("Magic number not found !\r\n");
+		memset(flash_buffer, 0, FLASHPAGE_SIZE);
+		flash_buffer[0]=0x55;
+		flash_buffer[1]=0xAA;
+		flash_buffer[2]=myaddress;
+		flashpage_rwwee_write_page(0, flash_buffer);
+		printf("My address is %d\r\n",myaddress);
+	}	
+
 
     i2c_acquire(I2C_DEV(0));
 
 	/* initialize UART */
     res = uart_init(UART_DEV(dev), 19200, rx_cb, (void *)dev);
     if (res == UART_NOBAUD) {
-        printf("Error: Given baudrate not possible\r\n");
+        //printf("Error: Given baudrate not possible\r\n");
         return 1;
     }
     else if (res != UART_OK) {
-        puts("Error: Unable to initialize UART device\r\n");
+        //puts("Error: Unable to initialize UART device\r\n");
         return 1;
     }
 
 	if (uart_mode(UART_DEV(dev), 8, UART_PARITY_NONE, 1) != UART_OK) {
-        printf("Error: Unable to apply UART settings\r\n");
+        //printf("Error: Unable to apply UART settings\r\n");
 		xtimer_msleep(1000U);
         return 1;
     }
@@ -253,10 +275,38 @@ int main(void) {
     
     wdt_setup_reboot(0, 10000);
     wdt_start();
-    
-    
+
+	memset(stdio_cmd_buffer,'.',5);
+	stdio_cmd_buffer[5]=0;
+
     // Loop principale
     for(;;) {
+		if (stdio_available()>0) {
+			for (int j=0;j<4;j++) {
+				stdio_cmd_buffer[j]=stdio_cmd_buffer[j+1];
+			}
+			stdio_read(stdio_cmd_buffer+4,1);
+			
+			/*
+			printf("[");	
+			for (int j=0;j<5;j++) {
+				printf("%c",stdio_cmd_buffer[j]);
+			}
+			printf("]\n\r");	
+			*/ 
+			
+			if (stdio_cmd_buffer[0]=='A' && stdio_cmd_buffer[1]=='=') {
+				myaddress=atoi(stdio_cmd_buffer+2);
+				
+				memset(flash_buffer, 0, FLASHPAGE_SIZE);
+				flash_buffer[0]=0x55;
+				flash_buffer[1]=0xAA;
+				flash_buffer[2]=myaddress;
+				flashpage_rwwee_write_page(0, flash_buffer);
+				// printf("My address is %d\r\n",myaddress);
+				memset(stdio_cmd_buffer,'.',5);
+			}
+		}
 
 		blinking_green_led_tick++;
 		if (blinking_green_led_tick>=0 && blinking_green_led_tick<10) {
@@ -270,16 +320,17 @@ int main(void) {
 		} 	
 
 		check_sensor_counter++;
-		if (check_sensor_counter==100) {
+		if (check_sensor_counter==50) {
 			check_sensor_counter=0;
 			if (read_hdc(&temp, &hum)==0) {
 				GREEN_LED_ON
 				valid_data=true;
-				printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
+				//printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
+				printf("%.1f,%.0f,%d\r\n",temp,hum,myaddress);
 				GREEN_LED_OFF
 			} else {
 				valid_data=false;
-				printf("Bad data\r\n");
+				//printf("Bad data\r\n");
 			}
 		}	
 		xtimer_msleep(100U);
@@ -294,26 +345,22 @@ int main(void) {
             for (buffer_pointer=0;buffer_pointer<5;buffer_pointer++) {
                crc16(&crc,rxbuffer[buffer_pointer]);
             }
+            
             if ( ((crc>>8)&0x00FF)==rxbuffer[5] && ((crc)&0x00FF)==rxbuffer[6] ) {
-                printf("Pacchetto OK !\r\n");
+                //printf("Pacchetto OK !\r\n");
             } else {
-                printf("Pacchetto CRC ERRATO !\r\n");
+                //printf("Pacchetto CRC ERRATO !\r\n");
+                buffer_pointer=0;
+				current_state=SNAP_NOSTATE;
+				break;
             }
 
             i++;
-            printf("Pacchetto n: %04d : ",i);
-            for (buffer_pointer=0;buffer_pointer<7;buffer_pointer++) {
-              printf("%02X ",rxbuffer[buffer_pointer]);
-            }
-            printf("\r\n");
         	xtimer_msleep(100U);
 
              if (valid_data==true) {
 				if (rxbuffer[2]==myaddress) {
 					RED_LED_ON
-					printf("Pacchetto per me !\r\n");
-                    //hum=70;
-					//printf("Umidita [%02f]\r\n] ",hum);
 
                     // Converte il valore di temperatura e umidita letto
                     // in valori binari nel formato simile a quello generato
@@ -332,31 +379,32 @@ int main(void) {
 
 					// Invia il pacchetto SNAP di risposta
 					
-					txbuffer[0]=0x54; 		//SYNC
-					txbuffer[1]=0x50; 		//HDB2
-					txbuffer[2]=0x44; 		//HDB1
-					txbuffer[3]=0x00; 		//DAB1
-					txbuffer[4]=myaddress;	//SAB1
-					txbuffer[5]=sht75_data[0];	//DB1
-					txbuffer[6]=sht75_data[1];	//DB2
-					txbuffer[7]=sht75_data[2];	//DB3
-					txbuffer[8]=sht75_data[3];	//DB4
+					txbuffer[0]=0x54; 			//SYNC
+					txbuffer[1]=0x54; 			//SYNC
+					txbuffer[2]=0x50; 			//HDB2
+					txbuffer[3]=0x44; 			//HDB1
+					txbuffer[4]=0x00; 			//DAB1
+					txbuffer[5]=myaddress;		//SAB1
+					txbuffer[6]=sht75_data[0];	//DB1
+					txbuffer[7]=sht75_data[1];	//DB2
+					txbuffer[8]=sht75_data[2];	//DB3
+					txbuffer[9]=sht75_data[3];	//DB4
 				
 
 					// Calcola il CRC16
 					// Controlla la validità del CRC
 
 					crc=0;
-					for (buffer_pointer=1;buffer_pointer<9;buffer_pointer++) {
-						printf("[%02X] ",txbuffer[buffer_pointer]);
+					for (buffer_pointer=2;buffer_pointer<10;buffer_pointer++) {
+						//printf("[%02X] ",txbuffer[buffer_pointer]);
 						crc16(&crc,txbuffer[buffer_pointer]);
 					}
-					printf("[%04X]\r\n",crc);
-					txbuffer[9]=(crc>>8)&0x00FF;	//CRC2
-					txbuffer[10]=crc&0x00FF; 		//CRC1	
-					
+					//printf("[%04X]\r\n",crc);
+					txbuffer[10]=(crc>>8)&0x00FF;	//CRC2
+					txbuffer[11]=crc&0x00FF; 		//CRC1	
+				
 					RS485_DE_ON
-					uart_write(UART_DEV(dev), (uint8_t *)txbuffer,11);
+					uart_write(UART_DEV(dev), (uint8_t *)txbuffer,12);
 					RS485_DE_OFF
 					RED_LED_OFF
 				}
@@ -371,7 +419,6 @@ int main(void) {
 	xtimer_msleep(2000U);
     return 0;
 }
-
 
 //(void) printf("%d\r\n",__LINE__);
 /* https://doc.riot-os.org/group__drivers__periph__uart.html */
