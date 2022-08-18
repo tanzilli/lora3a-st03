@@ -26,7 +26,7 @@ e compilare
 Per poter testare le schede ST03 ho scrito questo programmino in C di 
 test che interroga via RS485 uno o più nodo ST03
 
-	test/polling.c
+*	[polling.c](https://github.com/tanzilli/lora3a-st03/blob/main/test/polling.c)
 
 Il file test_st03.c è un programmino di test da compilare su Raspberry
 per provare i nodi su bus RS485 tramite un adattatore USB/RS485
