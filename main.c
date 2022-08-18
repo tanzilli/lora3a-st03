@@ -223,7 +223,7 @@ int main(void) {
 	}
 
     printf("\r\n");
-    printf("ST03 board 1.93\r\n");
+    printf("ST03 board 1.95\r\n");
 
 	// https://github.com/ant9000/lora-leaf/blob/master/lora_persistence.c
 	printf("Check flash state\r\n");
@@ -306,6 +306,11 @@ int main(void) {
 				// printf("My address is %d\r\n",myaddress);
 				memset(stdio_cmd_buffer,'.',5);
 			}
+
+			if (stdio_cmd_buffer[0]=='B' && stdio_cmd_buffer[1]=='=') {
+				printf("%.1f,%.0f,%d\r\n",temp,hum,myaddress);
+				memset(stdio_cmd_buffer,'.',5);
+			}
 		}
 
 		blinking_green_led_tick++;
@@ -326,7 +331,7 @@ int main(void) {
 				GREEN_LED_ON
 				valid_data=true;
 				//printf("Temp:%.2f Hum:%.2f\r\n",temp,hum);
-				printf("%.1f,%.0f,%d\r\n",temp,hum,myaddress);
+				//printf("%.1f,%.0f,%d\r\n",temp,hum,myaddress);
 				GREEN_LED_OFF
 			} else {
 				valid_data=false;
